@@ -6,9 +6,11 @@ import math
 
     attempting to implement LZW to understand how it works
 """
-def compress(uncompressed, bit_size = 9): # take a bytearray, output an integer list
-    if bit_size < 9: raise ValueError('Invalid bit size' % bit_size )
-    max_size = int(math.pow(2, bit_size)) # max dict size (2 power of bit size)
+
+# to do: improve compression rate
+
+def compress(uncompressed): # take a bytearray, output an integer list
+    max_size = 4096
     dictionary = {str([i]): i for i in range(256)} # self explanatory
 
     w = [uncompressed[0]] # first chara
@@ -25,23 +27,21 @@ def compress(uncompressed, bit_size = 9): # take a bytearray, output an integer 
             w = [c] # previous chain set to current chara
     if len(w) > 0:
         result.append(dictionary[str(w)]) # append the rest
-    result.insert(0, bit_size) # insert bit size at the start
     return result
 
-def compress_file(i, o, bit_size = 9): # same thing but with files
+def compress_file(i):
+    with open(i, "rb") as fi:
+        return compress(fi.read())
+
+def compress_file_to(i, o):
     with open(i, "rb") as fi:
         with open(o, "wb") as fo:
-            if bit_size < 9: raise ValueError('Invalid bit size' % bit_size )
-            fo.write(bit_size.to_bytes(1, byteorder='big')) # insert bit size
-            max_size = int(math.pow(2, bit_size))
-            dictionary = {str([i]): i for i in range(256)}
+            bit_size = 9
+            max_size = 512
+            size_limit = 12
+            dictionary = {str([i]): i for i in range(max_size)}
 
-            mul = 1 # pretty much the size of our buffer, must be a multiple of both 8 and bit_size
-            while (mul * 8) % bit_size != 0:
-                mul += 1
-
-            buf = 0 # buffer to handle our output and its weird width
-            buf_pos = 0 # number of bits written
+            buf = "" # buffer to handle our output and its weird width
             w = None
             for uncompressed in iter(partial(fi.read, 1024), b''):
                 for c in uncompressed:
@@ -52,65 +52,70 @@ def compress_file(i, o, bit_size = 9): # same thing but with files
                     if str(wc) in dictionary:
                         w = wc
                     else:
-                        buf = (buf << bit_size) + dictionary[str(w)] # add our X bits
-                        buf_pos += 1
-                        if buf_pos == mul - 1: # if full
-                            buf_pos = 0
-                            fo.write(buf.to_bytes(mul, byteorder='big')) # write
-                            buf = 0
+                        buf = buf + "{0:b}".format(dictionary[str(w)]).zfill(bit_size)
+                        if len(buf) > 64:
+                            fo.write(int(buf[0:64], 2).to_bytes(8, 'big'))
+                            buf = buf[64:]
                         if len(dictionary) < max_size:
                             dictionary[str(wc)] = len(dictionary)
+                            if len(dictionary) == max_size:
+                                if bit_size < size_limit:
+                                    bit_size += 1
+                                    max_size += max_size
+                                else:
+                                    bit_size = 9
+                                    max_size = 512
+                                    dictionary = {str([i]): i for i in range(max_size)}
                         w = [c]
             if len(w) > 0:
-                buf = (buf << bit_size) + dictionary[str(w)] # add the leftover
-                fo.write(buf.to_bytes(1 + ((1 + buf_pos) * bit_size) // 8, byteorder='big')) # and write
-
+                buf = buf + "{0:b}".format(dictionary[str(w)]).zfill(bit_size) # add the leftover
+                while len(buf) % 8 != 0:
+                    buf += "0" # padding
+                l = ((len(buf) - 1) // 8) + 1
+                fo.write(int(buf, 2).to_bytes(l, 'big')) # and write
 
 def decompress(compressed): # take an integer list (first element being the bit size), output a bytearray
-    bit_size = compressed.pop(0)
-    if bit_size < 9: raise ValueError('Invalid bit size' % bit_size )
-    max_size = int(math.pow(2, bit_size))
-    dictionary = {i: [i] for i in range(256)}
+    max_size = 4096
+    dictionary = [[i] for i in range(256)]
 
     result = bytearray()
     entry = []
     w = []
     for c in compressed:
-        if c in dictionary:
+        if c < len(dictionary):
             entry = dictionary[c]
         elif c == len(dictionary):
             entry = w + [w[0]]
         else:
             raise ValueError('Bad compressed c: %s' % c)
         for e in entry: result.append(e)
-        if len(w) > 0:
-            dictionary[len(dictionary)] = w + [entry[0]]
+        if len(w) > 0 and len(dictionary) < max_size:
+            dictionary.append(w + [entry[0]])
         w = entry
     return result
 
-def decompress_file(i, o):
+def decompress_to_file(o, compressed):
+    with open(o, "wb") as fo:
+        return fo.write(decompress(compressed))
+
+def decompress_file_to(i, o):
     with open(i, "rb") as fi:
         with open(o, "wb") as fo:
-            bit_size = int.from_bytes(fi.read(1), 'big')
-            if bit_size < 9: raise ValueError('Invalid bit size' % bit_size )
-            max_size = int(math.pow(2, bit_size))
-            dictionary = {i: [i] for i in range(256)}
-
-            mul = 1
-            while (mul * 8) % bit_size != 0:
-                mul += 1
+            bit_size = 9
+            max_size = 512
+            size_limit = 12
+            dictionary = {i: [i] for i in range(max_size)}
 
             result = bytearray()
             entry = []
             w = []
 
-            for chunk in iter(partial(fi.read, mul), b''): # might not be the most efficient?
-                buf = int.from_bytes(chunk, 'big')
-                compressed = []
-                for i in range(1, len(chunk)):
-                    compressed.insert(0, buf % max_size)
-                    buf = buf >> bit_size
-                for c in compressed:
+            buf = ""
+            for chunk in iter(partial(fi.read, 64), b''):
+                buf = buf + "{0:b}".format(int.from_bytes(chunk, 'big')).zfill(len(chunk)*8) # add to our buffer
+                while len(buf) >= bit_size:
+                    c = int(buf[:bit_size], 2)
+                    buf = buf[bit_size:]
                     if c in dictionary:
                         entry = dictionary[c]
                     elif c == len(dictionary):
@@ -118,18 +123,25 @@ def decompress_file(i, o):
                     else:
                         raise ValueError('Bad compressed c: %s' % c)
                     for e in entry: result.append(e)
-                    if len(w) > 0:
+                    if len(w) > 0 and len(dictionary) < max_size:
                         dictionary[len(dictionary)] = w + [entry[0]]
+                        if len(dictionary) == max_size:
+                            if bit_size < size_limit:
+                                bit_size += 1
+                                max_size += max_size
+                            else:
+                                bit_size = 9
+                                max_size = 512
+                                dictionary = {i: [i] for i in range(max_size)}
                     w = entry
                 fo.write(result)
                 result = bytearray()
 
-
 if __name__ == "__main__":
     with open("in.txt", "w") as f:
-        f.write("Hello world !!\nThis is a test to study LZW algorithm!")
+        f.write("Hello world !!\nThis is a test to study LZW algorithm!\nabcdefghijklmnopqrstuvwxyz\n123456789\n987654321\n0000")
     print("Compressing...")
-    compress_file("in.txt", "compressed", 9)
+    compress_file_to("in.txt", "compressed")
     print("Decompressing...")
-    decompress_file("compressed", "out.txt")
+    decompress_file_to("compressed", "out.txt")
     print("Done")
