@@ -141,9 +141,7 @@ if __name__ == "__main__":
     with open("in.txt", "w") as f:
         f.write("Hello world !!\nThis is a test to study LZW algorithm!\nabcdefghijklmnopqrstuvwxyz\n123456789\n987654321\n0000")
     print("Compressing...")
-    compress_file_to("in.odt", "compressed")
+    compress_file_to("in.txt", "compressed")
     print("Decompressing...")
-    decompress_file_to("compressed", "out.odt")
+    decompress_file_to("compressed", "out.txt")
     print("Done")
-
-    #print(decompress(compress("hello world!!".encode('ascii'))))
