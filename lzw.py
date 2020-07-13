@@ -7,23 +7,19 @@ import math
     attempting to implement LZW to understand how it works
 """
 
-# to do: improve compression rate
-
 def compress(uncompressed): # take a bytearray, output an integer list
-    max_size = 4096
     dictionary = {chr(i): i for i in range(256)} # self explanatory
 
-    w = chr(uncompressed[0]) # first chara
+    w = ""
     result = []
-    for i in range(1, len(uncompressed)): # start reading
-        c = chr(uncompressed[i]) # current chara
+    for uc in uncompressed: # start reading
+        c = chr(uc) # current chara
         wc = w + c # check for previous chain + current chara
         if wc in dictionary: # already in dict, we'll check for the next chara
             w = wc
         else:
             result.append(dictionary[w]) # add to output the previous chain
-            if len(dictionary) < max_size:
-                dictionary[wc] = len(dictionary) # add full chain to dict if not full
+            dictionary[wc] = len(dictionary) # add full chain to dict if not full
             w = c # previous chain set to current chara
     if len(w) > 0:
         result.append(dictionary[w]) # append the rest
@@ -39,15 +35,12 @@ def compress_file_to(i, o):
             bit_size = 9
             max_size = 512
             size_limit = 12
-            dictionary = {chr(i): i for i in range(max_size)}
+            dictionary = {chr(i): i for i in range(256)}
 
             buf = "" # buffer to handle our output and its weird width
-            w = None
+            w = ""
             for uncompressed in iter(partial(fi.read, 1024), b''):
                 for c in uncompressed:
-                    if w is None:
-                        w = chr(c)
-                        continue
                     wc = w + chr(c)
                     if wc in dictionary:
                         w = wc
@@ -75,7 +68,6 @@ def compress_file_to(i, o):
                 fo.write(int(buf, 2).to_bytes(l, 'big')) # and write
 
 def decompress(compressed): # take an integer list (first element being the bit size), output a bytearray
-    max_size = 4096
     dictionary = [chr(i) for i in range(256)]
 
     result = bytearray()
@@ -89,8 +81,7 @@ def decompress(compressed): # take an integer list (first element being the bit 
         else:
             raise ValueError('Bad compressed c: %s' % c)
         for e in entry: result.append(ord(e))
-        if len(w) > 0 and len(dictionary) < max_size:
-            dictionary.append(w + entry[0])
+        dictionary.append(w + entry[0])
         w = entry
     return result
 
@@ -104,7 +95,7 @@ def decompress_file_to(i, o):
             bit_size = 9
             max_size = 512
             size_limit = 12
-            dictionary = {i: chr(i) for i in range(max_size)}
+            dictionary = {i: chr(i) for i in range(256)}
 
             result = bytearray()
             entry = ""
@@ -124,7 +115,7 @@ def decompress_file_to(i, o):
                         raise ValueError('Bad compressed c: %s' % c)
                     for e in entry: result.append(ord(e))
                     if len(w) > 0 and len(dictionary) < max_size:
-                        dictionary[len(dictionary)] = w + chr(entry[0])
+                        dictionary[len(dictionary)] = w + entry[0]
                         if len(dictionary) == max_size:
                             if bit_size < size_limit:
                                 bit_size += 1
@@ -139,7 +130,7 @@ def decompress_file_to(i, o):
 
 if __name__ == "__main__":
     with open("in.txt", "w") as f:
-        f.write("Hello world !!\nThis is a test to study LZW algorithm!\nabcdefghijklmnopqrstuvwxyz\n123456789\n987654321\n0000")
+        f.write("Hello world !!\nThis is a test to study LZW algorithm!\nabcdefghijklmnopqrstuvwxyz\n123456789\n987654321\n0000\n")
     print("Compressing...")
     compress_file_to("in.txt", "compressed")
     print("Decompressing...")
