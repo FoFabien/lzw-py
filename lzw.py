@@ -36,20 +36,25 @@ def compress_file_to(i, o):
             max_size = 512
             size_limit = 12
             dictionary = {chr(i): i for i in range(256)}
+            ratio_in = 0
+            ratio_out = 0
 
             buf = "" # buffer to handle our output and its weird width
             w = ""
             for uncompressed in iter(partial(fi.read, 1024), b''):
                 for uc in uncompressed:
+                    ratio_in += 1
                     c = chr(uc)
                     wc = w + c
                     if wc in dictionary:
                         w = wc
                     else:
-                        buf = buf + "{0:b}".format(dictionary[w]).zfill(bit_size) # fill the buffer with our bits
-                        if len(buf) >= 64: # write 64 by 64 
+                        buf += "{0:b}".format(dictionary[w]).zfill(bit_size) # fill the buffer with our bits
+
+                        if len(buf) > 64: # write 64 by 64 
                             fo.write(int(buf[0:64], 2).to_bytes(8, 'big'))
                             buf = buf[64:] # remove what we wrote
+                            ratio_out += 8
                         if len(dictionary) < max_size:
                             dictionary[wc] = len(dictionary)
                             if len(dictionary) == max_size:
@@ -57,12 +62,16 @@ def compress_file_to(i, o):
                                     bit_size += 1
                                     max_size += max_size
                         w = c
-            if len(w) > 0:
-                buf = buf + "{0:b}".format(dictionary[w]).zfill(bit_size) # add the leftover
+            if w != "":
+                buf += "{0:b}".format(dictionary[w]).zfill(bit_size) # add the leftover
+            if buf != "":
                 while len(buf) % 8 != 0:
                     buf += "0" # padding
                 l = ((len(buf) - 1) // 8) + 1
+                ratio_out += l
                 fo.write(int(buf, 2).to_bytes(l, 'big')) # and write
+            print(ratio_in, "bytes in,", ratio_out, "bytes out")
+            print("Compression Ratio", ratio_out*100/ratio_in, "%")
 
 def decompress(compressed): # take an integer list (first element being the bit size), output a bytearray
     dictionary = {i: chr(i) for i in range(256)}
@@ -123,7 +132,7 @@ def decompress_file_to(i, o):
 
 if __name__ == "__main__":
     with open("in.txt", "w") as f:
-        f.write("Hello world !!\nThis is a test to study LZW algorithm!\nabcdefghijklmnopqrstuvwxyz\n123456789\n987654321\n0000\n")
+        f.write("Hello world !!\nThis is a test to study LZW algorithm!\nThisisatesttostudyLZWalgorithm\n0101010101\n10101010101\n0000\n")
     print("Compressing...")
     compress_file_to("in.txt", "compressed")
     print("Decompressing...")
